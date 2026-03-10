@@ -1,5 +1,4 @@
-#!/usr/bin/env bash
-
+﻿#!/usr/bin/env bash
 set +e
 
 echo "🔒 DKey Switch Agent Security Audit"
@@ -23,7 +22,7 @@ pass() {
 }
 
 echo "1) Checking required files..."
-for f in "SKILL.md" "_meta.json" "scripts/d-switch.sh"; do
+for f in "SKILL.md" "_meta.json" "scripts/d-switch.sh" "scripts/d-switch.ps1" "scripts/d-switch.cmd" "scripts/security-audit.sh" "scripts/security-audit.ps1" "scripts/security-audit.cmd"; do
     if [[ -f "$f" ]]; then
         pass "$f exists"
     else
@@ -32,13 +31,27 @@ for f in "SKILL.md" "_meta.json" "scripts/d-switch.sh"; do
 done
 
 echo "2) Checking command hints..."
-if grep -q "Dalt\|Dctrl" "SKILL.md"; then
+if grep -q "Dalt\|Dctrl\|find-window\|list-windows\|activate-window\|activate-process\|activate-handle" "SKILL.md"; then
     pass "SKILL.md contains command hints"
 else
     warn "SKILL.md may be missing command hints"
 fi
 
-echo "3) Checking script executable bit (best effort)..."
+echo "3) Checking usage reference updates..."
+if grep -q "find-window\|activate-window\|activate-process\|activate-handle\|--json" "references/usage-patterns.md"; then
+    pass "references/usage-patterns.md contains new window commands"
+else
+    warn "references/usage-patterns.md may be missing new window commands"
+fi
+
+echo "4) Checking JSON output hints..."
+if grep -q -- "--json" "SKILL.md"; then
+    pass "SKILL.md contains json output hints"
+else
+    warn "SKILL.md may be missing json output hints"
+fi
+
+echo "5) Checking script executable bit (best effort)..."
 if [[ -x "scripts/d-switch.sh" ]]; then
     pass "scripts/d-switch.sh is executable"
 else
