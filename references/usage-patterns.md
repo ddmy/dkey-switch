@@ -20,10 +20,26 @@
 - 回退：仅在无法明确命中窗口时，使用 `scripts\d-switch.cmd Dalt -1`
 - Git Bash / WSL 兼容路径：`bash scripts/d-switch.sh ...`
 
+## Canonical Intent -> Command
+
+- 意图：切到某个明确窗口
+- 命令：`scripts\d-switch.cmd activate-window <关键字>`
+- 意图：窗口不明确，先看候选
+- 命令：`scripts\d-switch.cmd find-window <关键字> 3 --json`
+- 意图：在候选中激活第 n 个
+- 命令：`scripts\d-switch.cmd activate-window <关键字> <候选序号> --json`
+- 意图：只知道进程名
+- 命令：`scripts\d-switch.cmd activate-process <进程名> 1 --json`
+- 意图：只知道句柄
+- 命令：`scripts\d-switch.cmd activate-handle <句柄> --json`
+- 意图：已在目标窗口，只切标签
+- 命令：`scripts\d-switch.cmd Dctrl -1`
+
 ## Window Switching
 
 - 命令：`scripts\d-switch.cmd Dalt -N`
 - 用途：兼容/回退模式下，在多个应用窗口间小步切换
+- 参数说明：兼容 `N` 与 `-N`，推荐 `-N`
 
 ## Process Window Locate
 
@@ -64,3 +80,21 @@
 
 - 命令：`scripts\d-switch.cmd Dctrl -N`
 - 用途：浏览器或编辑器多标签快速切换
+- 参数说明：兼容 `N` 与 `-N`，推荐 `-N`
+
+## JSON Contract (Recommended)
+
+- 推荐所有编排调用使用 `--json`
+- 常见状态：`ok`、`activated`、`not_found`、`choice_out_of_range`、`activation_failed`
+- 失败处理建议：
+- `not_found` -> 改用更短关键词重试，或先 `list-windows --json`
+- `choice_out_of_range` -> 先用 `find-window ... --json` 获取候选数
+- `activation_failed` -> 优先重试 1 次，再降级 `Dalt -1`
+
+## Exit Codes
+
+- `0` success
+- `1` bad command/args
+- `2` target not found
+- `3` activation failed
+- `4` choice out of range
