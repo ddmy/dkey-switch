@@ -25,14 +25,19 @@ function Parse-PositiveInt([string]$raw, [string]$label) {
 
 # 常见应用别名/缩写映射表（小写）
 $script:AppAliases = @{
-    # 企业应用
+    # 企业应用 - 中文 + 拼音
     '企微' = @('企业微信', 'wechatwork', 'wecom')
     '企业微' = @('企业微信', 'wechatwork', 'wecom')
+    'qiwei' = @('企业微信', 'wechatwork', 'wecom')
+    'qiyou' = @('企业微信', 'wechatwork', 'wecom')  # 跳跃匹配辅助
     'wx' = @('微信', 'wechat')
+    'weixin' = @('微信', 'wechat')
     'vx' = @('微信', 'wechat')
     'qq' = @('qq', 'tim', '腾讯')
     '钉钉' = @('钉钉', 'dingtalk')
+    'dingding' = @('钉钉', 'dingtalk')
     '飞书' = @('飞书', 'lark')
+    'feishu' = @('飞书', 'lark')
     
     # 编辑器/IDE
     'code' = @('code', 'vscode', 'visual studio code')
@@ -46,11 +51,13 @@ $script:AppAliases = @{
     'chrome' = @('chrome', 'google chrome')
     'edge' = @('edge', 'microsoft edge')
     'ff' = @('firefox', '火狐')
+    'firefox' = @('firefox', '火狐')
     
     # 终端
     'cmd' = @('cmd', 'command prompt')
     'wt' = @('windows terminal', 'terminal')
     '终端' = @('terminal', 'windows terminal', 'cmd', 'powershell', 'git bash')
+    'terminal' = @('terminal', 'windows terminal')
     
     # 开发工具
     'git' = @('git', 'github', 'git bash')
@@ -60,6 +67,7 @@ $script:AppAliases = @{
     # 文件管理
     '文件' = @('explorer', '文件资源管理器', '文件夹')
     '资源管理器' = @('explorer', '文件资源管理器')
+    'explorer' = @('explorer', '文件资源管理器')
     
     # 媒体
     '音乐' = @('spotify', 'music', '网易云音乐', 'qq音乐')
@@ -89,6 +97,19 @@ function Expand-QueryVariants([string]$Query) {
                 [void]$variants.Add((Normalize-Text $target))
             }
         }
+    }
+    
+    # 智能扩展：尝试从拼音提取可能的匹配（如 qiyeweixinwendang -> 企业微信）
+    # 添加中文关键词作为潜在匹配目标
+    if ($queryLower -match 'qiyou|qiwei|weixin|wechat') {
+        [void]$variants.Add('企业微信')
+        [void]$variants.Add('微信')
+    }
+    if ($queryLower -match 'wendang|wen') {
+        [void]$variants.Add('文档')
+    }
+    if ($queryLower -match 'dingding|ding') {
+        [void]$variants.Add('钉钉')
     }
     
     return @($variants)
@@ -361,12 +382,14 @@ function Build-MatchList {
         [object[]]$SourceWindows,
         [string]$Query,
         [int]$Limit,
-        [string]$MatchMode = 'mixed'
+        [string]$MatchMode = 'mixed',
+        [int]$MinScore = 50
     )
 
     $result = foreach ($w in $SourceWindows) {
         $score = Get-MatchScore -Window $w -Query $Query -MatchMode $MatchMode
-        if ($score -gt 0) {
+        # 使用最小分数阈值过滤低质量匹配（避免误匹配）
+        if ($score -ge $MinScore) {
             [pscustomobject]@{
                 Index = $w.Index
                 Title = $w.Title
