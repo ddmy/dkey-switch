@@ -1,164 +1,126 @@
 ﻿---
 name: dkey-switch
-description: "当用户表达切换窗口、打开某个正在运行的窗口、切到某个应用、定位/找到/回到某个窗口、查看前台窗口，或表达切换页签/标签页时，立即调用本技能。必须先判断系统：Windows 优先使用 `scripts\\d-switch.cmd activate-window <关键字>`，也可使用 `powershell -File scripts/d-switch.ps1 activate-window <关键字>`；目标不明确时先 `find-window` 后激活；`Dalt`/`Dctrl` 仅作为回退路径。macOS 当前不执行本仓库自动化脚本，改走系统快捷键策略。"
-user-invocable: true
+description: AI 窗口切换技能。用于定位并激活 Windows 上的目标窗口，支持窗口查找、进程匹配、句柄激活与标签切换回退。
+argument-hint: <窗口关键字|进程名|窗口句柄>
+metadata: {
+   "clawdbot":{
+      "emoji":"🪟",
+      "requires":{
+         "bins":["powershell"]
+      },
+      "install":[
+         {"id":"winget-powershell","kind":"winget","package":"Microsoft.PowerShell","bins":["powershell"],"label":"Install PowerShell (winget)"}
+      ]
+   }
+}
 ---
 
-## 核心目标
+## Identity & Scope
 
-当用户让帮他“看到/切到/定位到”某个正在运行的窗口，或某个窗口里的页签/标签页时，直接调用本技能脚本执行切换。
+本技能用于 AI 执行窗口切换动作（window focus/activation），目标是“直接定位并激活目标窗口”，而不是只给快捷键建议。
 
-## 强触发意图
+支持命令（capabilities）：
 
-- 查看某个正在运行的应用窗口
-- 切到某个窗口后继续查找其中页签
-- 在多个窗口或多个标签之间定位目标
-- 回到某个程序窗口
-- 打开前台窗口
+- `Dalt`：模拟 `Alt+Tab` 小步切换（回退路径）
+- `Dctrl`：模拟 `Ctrl+Tab` 标签切换
+- `list-windows`
+- `find-window <关键字> [候选数量] [--json]`
+- `activate-window <关键字> [候选序号] [--json]`
+- `activate-process <进程名> [候选序号] [--json]`
+- `activate-handle <句柄> [--json]`
 
-## 触发关键词
+## Triggering Rules
 
-- 窗口类：切换窗口、切到窗口、定位窗口、找到窗口、跳到窗口、回到窗口、切焦点、前台窗口、正在运行的窗口
-- 终端类：打开 CMD、显示终端、查看命令行窗口、切到 terminal
-- 页签类：切换页签、切换标签页、下一个标签、定位标签、切到某个 tab
+命中以下意图时应触发本技能：
 
-## 扩展触发短语（面向 AI）
+- “切到/回到/定位/激活”某个已打开窗口
+- “切到某窗口后，再切 tab/标签页”
+- “只知道进程名或句柄，要求切到对应窗口”
 
-- 回到刚才那个窗口、切回编辑器、把微信调出来、把浏览器调到前台
-- 切到终端窗口、回到命令行、切回 VS Code
-- 把这个应用切到前面、把这个窗口激活
+典型触发表达（examples）：
 
-## 触发排除规则（防误触发）
+- 回到 VS Code / 把微信调出来 / 切到终端窗口
+- 切到浏览器后切下一页签
+- 把这个窗口拉到前台
 
-- 仅在用户要求“执行切换动作”时触发
-- 仅问快捷键知识（如“Alt+Tab 是什么”）不触发
-- 仅讨论概念或对比方案，不触发
+## Intent -> Command
 
-## 调用指南
+优先按意图选择命令（canonical mapping）：
 
-当命中上述意图或同义表达时：
+- 明确窗口关键词：`scripts\d-switch.cmd activate-window <关键字> --json`
+- 窗口有歧义：`scripts\d-switch.cmd find-window <关键字> 3 --json`，再 `scripts\d-switch.cmd activate-window <关键字> <序号> --json`
+- 仅有进程名：`scripts\d-switch.cmd activate-process <进程名> 1 --json`
+- 已知句柄：`scripts\d-switch.cmd activate-handle <句柄> --json`
+- 已在目标窗口内切标签：`scripts\d-switch.cmd Dctrl -1`
+- 无目标线索仅要求“切一下”：`scripts\d-switch.cmd Dalt -1`
 
-1. 必须调用 `dkey-switch`
-2. AI 不做手动窗口操作描述，不让用户自己按快捷键，直接执行脚本命令
-3. 先判断系统再选路径：
-   - Windows：执行本仓库脚本
-   - macOS：当前脚本不支持，使用系统快捷键降级
-4. Windows 下首选命令：
-   - `scripts\d-switch.cmd activate-window <关键字>`
-   - `powershell -File scripts/d-switch.ps1 activate-window <关键字>`
-5. Git Bash / WSL 兼容命令：
-   - `bash scripts/d-switch.sh activate-window <关键字>`
-6. Windows 路由优先级：
-   - 已知目标窗口关键词 -> `activate-window`
-   - 目标不明确或有歧义 -> `find-window` 后再 `activate-window`
-   - 已知稳定进程名 -> `activate-process`
-   - 已有窗口句柄 -> `activate-handle`
-   - 无法命中目标且需要人工逐步切换 -> `Dalt`
-   - 已在目标窗口内需要切标签 -> `Dctrl`
+## Command Protocol
 
-## AI 决策模板（Canonical）
+调用约定（protocol）：
 
-- 目标窗口明确：`scripts\d-switch.cmd activate-window <关键字>`
-- 目标窗口不明确：`scripts\d-switch.cmd find-window <关键字> 3 --json` 后 `scripts\d-switch.cmd activate-window <关键字> 1`
-- 目标是稳定进程：`scripts\d-switch.cmd activate-process <进程名> 1`
-- 已知句柄：`scripts\d-switch.cmd activate-handle <句柄>`
-- 窗口内切页签：先 `activate-window`，再 `scripts\d-switch.cmd Dctrl -1`
-- 没有任何目标线索：`scripts\d-switch.cmd Dalt -1`（仅回退）
+- 建议编排默认使用 `--json`（recommended），由上层按 `status` 分流。
+- Windows 入口优先级：
+- `scripts\d-switch.cmd ...`（primary）
+- `powershell -File scripts/d-switch.ps1 ...`（secondary）
+- `bash scripts/d-switch.sh ...`（Git Bash/WSL 兼容）
+- macOS 当前无等价自动化脚本，仅降级为系统快捷键：窗口 `Cmd+Tab`，标签 `Ctrl+Tab` 或 `Cmd+Shift+]`。
 
-## 系统分流
+参数默认值（defaults）：
 
-- Windows：
-  - 首选 `scripts\d-switch.cmd`
-  - 次选 `powershell -File scripts/d-switch.ps1`
-  - bash 仅兼容，不是首选
-- macOS：
-  - 当前仓库脚本链路不支持
-  - 窗口切换降级：`Cmd+Tab`
-  - 窗口内页签降级：`Ctrl+Tab` 或 `Cmd+Shift+]`
+- `find-window` 默认候选数量是 `3`
+- `activate-window` / `activate-process` 默认候选序号是 `1`
+- `Dalt` / `Dctrl` 的次数兼容 `N` 和 `-N`，推荐 `-N`
 
-## 决策规则
+## Decision Flow
 
-- 用户说“打开/切到/回到某个应用窗口” -> 优先 `activate-window <关键字>`
-- 用户只给了进程名且较稳定 -> 可优先 `activate-process <进程名>`
-- 用户说“某个窗口里的标签页/tab” -> 先 `activate-window` 定位窗口，再执行 `Dctrl`
-- 用户同时提到窗口和页签 -> 先 `activate-window`，后 `Dctrl`
-- 只有“切一下窗口”但无明确目标 -> 才使用 `Dalt -1` 小步切换
+执行顺序（decision flow）：
 
-## 功能
+1. 先判定系统。Windows 走脚本链路；非 Windows 给降级方案。
+2. 判断用户目标信息：关键字 > 进程名 > 句柄 > 无目标线索。
+3. 有明确目标优先 `activate-*`；有歧义先 `find-window` 再激活。
+4. 只有“切一下窗口”才使用 `Dalt`，不要把 `Dalt` 当主定位手段。
+5. 涉及“窗口内 tab”时，先 `activate-window`，再 `Dctrl`。
 
-- 支持 `Dalt` + 次数：模拟 `Alt+Tab` 连续切换
-- 支持 `Dctrl` + 次数：模拟 `Ctrl+Tab` 连续切换
-- 支持 `list-windows`
-- 支持 `find-window <关键字> [候选数量]`
-- 支持 `activate-window <关键字> [候选序号]`
-- 支持 `activate-process <进程名> [候选序号]`
-- 支持 `activate-handle <句柄>`
-- 支持 `--json`
+## Failure Recovery
 
-## 参数兼容约定
+`--json` 结果字段（JSON contract）：`mode`、`query`、`choice`、`status`、`count`、`items`。
 
-- `Dalt`/`Dctrl` 的次数参数兼容 `N` 与 `-N`，推荐写法为 `-N`（如 `-1`）
-- `find-window` 默认候选数量为 `3`
-- `activate-window` / `activate-process` 默认候选序号为 `1`
+状态处理（status handling）：
 
-## JSON 状态契约（供上层 AI 决策）
+- `status=ok`：列表/查询成功，继续下一步决策。
+- `status=activated`：激活成功，流程结束。
+- `status=not_found`：缩短或改写关键词重试；必要时先 `list-windows --json`。
+- `status=choice_out_of_range`：先重新 `find-window ... --json` 获取候选数量。
+- `status=activation_failed`：优先重试 1 次；仍失败再降级 `Dalt -1`。
 
-- 常见字段：`mode`、`query`、`choice`、`status`、`count`、`items`
-- `status=ok`：列表或查询成功返回
-- `status=activated`：激活成功
-- `status=not_found`：未找到候选
-- `status=choice_out_of_range`：候选序号超范围
-- `status=activation_failed`：找到候选但激活失败
+退出码（exit code）：
 
-## 退出码约定（供编排层处理）
-
-- `0`：成功或可继续流程（含 list/find 成功）
-- `1`：参数或命令不合法
+- `0`：成功（含 `list/find` 成功）
+- `1`：命令或参数不合法
 - `2`：未找到目标
 - `3`：找到目标但激活失败
 - `4`：候选序号越界
 
-## 快速开始
+## Examples
 
-1. 进入技能包目录：`cd dkey-switch`
-2. Windows CMD 首选：`scripts\d-switch.cmd activate-window QQ`
-3. Windows PowerShell 可用：`powershell -File scripts/d-switch.ps1 activate-window QQ`
-4. Git Bash / WSL 兼容：`bash scripts/d-switch.sh activate-window QQ`
-5. 运行安全检查：`scripts\security-audit.cmd`
+高价值示例（high-value cases）：
 
-## 命令示例
+- 切到微信：`scripts\d-switch.cmd activate-window 微信 --json`
+- 先查浏览器候选再切：`scripts\d-switch.cmd find-window edge 3 --json` -> `scripts\d-switch.cmd activate-window edge 1 --json`
+- 只知道进程名：`scripts\d-switch.cmd activate-process Code 1 --json`
+- 按句柄精确激活：`scripts\d-switch.cmd activate-handle 0x2072C --json`
+- 切到目标窗口后切标签：`scripts\d-switch.cmd activate-window chrome --json` -> `scripts\d-switch.cmd Dctrl -1`
+- 无明确目标只切一步：`scripts\d-switch.cmd Dalt -1`
 
-- `scripts\d-switch.cmd activate-window QQ`
-- `scripts\d-switch.cmd find-window 微信 3`
-- `scripts\d-switch.cmd activate-process Code`
-- `scripts\d-switch.cmd activate-handle 0x2072C`
-- `scripts\d-switch.cmd list-windows`
-- `scripts\d-switch.cmd find-window code 3 --json`
-- `scripts\d-switch.cmd Dalt -1`
-- `scripts\d-switch.cmd Dctrl -1`
-- `scripts\security-audit.cmd`
+## Non-trigger Cases
 
-## 技能说明
+以下场景不应调用技能（no invocation）：
 
-- 窗口定位默认首选：`activate-window <关键字>`
-- 当用户已经知道目标窗口关键字时，直接执行 `activate-window`
-- 当目标不明确或可能重名时，先执行 `find-window` 查看前 3 个候选，再执行 `activate-window`
-- `Dalt` 仅用于回退，不是窗口定位首选
-- `activate-window` 会优先恢复最小化窗口，再尝试把最佳匹配窗口切到最前
-- `activate-process` 适合窗口标题变化大、但进程名稳定的场景
-- `activate-handle` 适合上层已经拿到窗口句柄、希望精确命中目标窗口的场景
-- 当需要由上层程序继续决策时，可附加 `--json` 获取结构化候选数据
-- 当用户要查看某个窗口内的页签时，先用 `activate-window` 确保窗口正确，再使用 `Dctrl`
-- 建议上层编排优先使用 `--json`，按 `status` 自动选择重试、换候选或降级
+- 用户只问快捷键知识，例如“`Alt+Tab` 是什么”
+- 用户只讨论原理/概念，不要求执行切换动作
 
-## 不触发场景
+## Notes
 
-- 用户仅询问快捷键知识，未要求执行切换
-- 用户仅做概念讨论，不要求查看/切到/定位具体窗口或页签
-
-## 注意
-
-- 该脚本会真实触发系统切换窗口/标签
-- Windows 下优先使用 `scripts\d-switch.cmd`
-- `bash scripts/d-switch.sh` 仅作为 Git Bash / WSL 兼容入口
-- macOS 当前仅提供快捷键降级说明，未提供同等自动激活脚本
+- 本技能会真实触发系统窗口或标签切换，请按用户意图执行。
+- 建议所有可编排路径优先使用 `--json`，减少歧义并支持自动重试。
+- 命令真源为 `scripts/d-switch.ps1`；文档与脚本参数语义保持一致。
