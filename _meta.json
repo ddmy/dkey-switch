@@ -1,7 +1,7 @@
 {
   "ownerId": "local-user",
   "slug": "dkey-switch",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "publishedAt": 1770000000000,
   "description": "Windows 窗口焦点切换与标签页导航工具，支持按关键词定位、切换及管理运行中应用。",
   "intents": {
