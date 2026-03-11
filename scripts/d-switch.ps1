@@ -23,11 +23,132 @@ function Parse-PositiveInt([string]$raw, [string]$label) {
     return [int]$parsed
 }
 
+# 常见应用别名/缩写映射表（小写）
+$script:AppAliases = @{
+    # 企业应用
+    '企微' = @('企业微信', 'wechatwork', 'wecom')
+    '企业微' = @('企业微信', 'wechatwork', 'wecom')
+    'wx' = @('微信', 'wechat')
+    'vx' = @('微信', 'wechat')
+    'qq' = @('qq', 'tim', '腾讯')
+    '钉钉' = @('钉钉', 'dingtalk')
+    '飞书' = @('飞书', 'lark')
+    
+    # 编辑器/IDE
+    'code' = @('code', 'vscode', 'visual studio code')
+    'vscode' = @('vscode', 'visual studio code')
+    'vs' = @('visual studio', 'vscode')
+    'idea' = @('idea', 'intellij')
+    'pycharm' = @('pycharm')
+    'vim' = @('vim', 'neovim', 'nvim')
+    
+    # 浏览器
+    'chrome' = @('chrome', 'google chrome')
+    'edge' = @('edge', 'microsoft edge')
+    'ff' = @('firefox', '火狐')
+    
+    # 终端
+    'cmd' = @('cmd', 'command prompt')
+    'wt' = @('windows terminal', 'terminal')
+    '终端' = @('terminal', 'windows terminal', 'cmd', 'powershell', 'git bash')
+    
+    # 开发工具
+    'git' = @('git', 'github', 'git bash')
+    'github' = @('github', 'git')
+    'docker' = @('docker', 'docker desktop')
+    
+    # 文件管理
+    '文件' = @('explorer', '文件资源管理器', '文件夹')
+    '资源管理器' = @('explorer', '文件资源管理器')
+    
+    # 媒体
+    '音乐' = @('spotify', 'music', '网易云音乐', 'qq音乐')
+    '视频' = @('vlc', 'potplayer', 'media player')
+}
+
 function Normalize-Text([string]$Text) {
     if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
     # 先移除连字符，使 "企业微信-文档" 和 "企业微信文档" 能互相匹配
     $text = $Text.ToLowerInvariant() -replace '-', ''
     return ([regex]::Replace($text, '[^\p{L}\p{Nd}]+', ' ')).Trim()
+}
+
+# 展开查询词的所有可能形式（原词 + 别名映射）
+function Expand-QueryVariants([string]$Query) {
+    $variants = New-Object System.Collections.Generic.HashSet[string]
+    $normalized = Normalize-Text $Query
+    [void]$variants.Add($normalized)
+    [void]$variants.Add($Query.ToLowerInvariant())
+    
+    # 检查别名映射
+    $queryLower = $Query.ToLowerInvariant()
+    foreach ($alias in $script:AppAliases.Keys) {
+        if ($queryLower -eq $alias -or $normalized -eq $alias) {
+            foreach ($target in $script:AppAliases[$alias]) {
+                [void]$variants.Add($target)
+                [void]$variants.Add((Normalize-Text $target))
+            }
+        }
+    }
+    
+    return @($variants)
+}
+
+# 跳跃匹配：检查查询词是否以相同顺序出现在目标文本中（支持省略字符）
+function Test-FuzzyMatch([string]$Query, [string]$Target) {
+    if ([string]::IsNullOrWhiteSpace($Query) -or [string]::IsNullOrWhiteSpace($Target)) { return $false }
+    
+    $q = $Query.ToLowerInvariant()
+    $t = $Target.ToLowerInvariant()
+    
+    $qIndex = 0
+    $tIndex = 0
+    
+    while ($qIndex -lt $q.Length -and $tIndex -lt $t.Length) {
+        if ($q[$qIndex] -eq $t[$tIndex]) {
+            $qIndex++
+        }
+        $tIndex++
+    }
+    
+    return $qIndex -eq $q.Length
+}
+
+# 计算跳跃匹配分数
+function Get-FuzzyMatchScore([string]$Query, [string]$Target) {
+    if ([string]::IsNullOrWhiteSpace($Query) -or [string]::IsNullOrWhiteSpace($Target)) { return 0 }
+    
+    $q = $Query.ToLowerInvariant()
+    $t = $Target.ToLowerInvariant()
+    
+    $qIndex = 0
+    $tIndex = 0
+    $consecutiveMatches = 0
+    $totalMatches = 0
+    $lastMatchIndex = -1
+    
+    while ($qIndex -lt $q.Length -and $tIndex -lt $t.Length) {
+        if ($q[$qIndex] -eq $t[$tIndex]) {
+            $totalMatches++
+            if ($lastMatchIndex -ge 0 -and $tIndex -eq $lastMatchIndex + 1) {
+                $consecutiveMatches++
+            }
+            $lastMatchIndex = $tIndex
+            $qIndex++
+        }
+        $tIndex++
+    }
+    
+    if ($qIndex -lt $q.Length) { return 0 }  # 未完全匹配
+    
+    # 分数计算：基础分 + 连续匹配奖励 + 完整度奖励
+    $score = 30 * $totalMatches + 20 * $consecutiveMatches
+    # 如果完全匹配整个词，额外加分
+    if ($t.Contains($q)) { $score += 50 }
+    # 如果是开头匹配，额外加分
+    if ($t.StartsWith($q)) { $score += 30 }
+    
+    return $score
 }
 
 function Get-MatchScore {
@@ -42,11 +163,20 @@ function Get-MatchScore {
 
     $title = Normalize-Text $Window.Title
     $process = Normalize-Text $Window.ProcessName
+    $rawTitle = $Window.Title
+    $rawProcess = $Window.ProcessName
     $score = 0
+    
+    # 获取查询词的所有变体形式
+    $queryVariants = Expand-QueryVariants $Query
 
     if ($MatchMode -eq 'process') {
-        if ($process -eq $normalizedQuery) { $score += 220 }
-        if ($process.StartsWith($normalizedQuery)) { $score += 160 }
+        # 优先检查别名完全匹配
+        foreach ($variant in $queryVariants) {
+            if ($process -eq $variant) { $score += 250; break }
+            if ($process.StartsWith($variant)) { $score += 180; break }
+        }
+        
         if ($process.Contains($normalizedQuery)) { $score += 120 }
 
         foreach ($token in ($normalizedQuery -split '\s+' | Where-Object { $_ })) {
@@ -58,13 +188,43 @@ function Get-MatchScore {
         return $score
     }
 
-    if ($title -eq $normalizedQuery) { $score += 140 }
-    if ($process -eq $normalizedQuery) { $score += 130 }
+    # === 标题匹配（优先级高于进程）===
+    # 1. 完全匹配（包括别名展开后的完全匹配）
+    foreach ($variant in $queryVariants) {
+        if ($title -eq $variant) { $score += 160; break }
+    }
+    if ($title -eq $normalizedQuery) { $score += 150 }
+    
+    # 2. 开头匹配
+    foreach ($variant in $queryVariants) {
+        if ($title.StartsWith($variant)) { $score += 110; break }
+    }
     if ($title.StartsWith($normalizedQuery)) { $score += 100 }
-    if ($process.StartsWith($normalizedQuery)) { $score += 90 }
+    
+    # 3. 包含匹配
+    foreach ($variant in $queryVariants) {
+        if ($title.Contains($variant) -and $variant.Length -gt 2) { $score += 90; break }
+    }
     if ($title.Contains($normalizedQuery)) { $score += 80 }
+    
+    # 4. 跳跃模糊匹配（如"企微"→"企业微信"）
+    $fuzzyScore = Get-FuzzyMatchScore $Query $rawTitle
+    if ($fuzzyScore -gt 0) { $score += $fuzzyScore }
+    
+    # === 进程匹配 ===
+    foreach ($variant in $queryVariants) {
+        if ($process -eq $variant) { $score += 140; break }
+        if ($process.StartsWith($variant)) { $score += 100; break }
+    }
+    if ($process -eq $normalizedQuery) { $score += 130 }
+    if ($process.StartsWith($normalizedQuery)) { $score += 90 }
     if ($process.Contains($normalizedQuery)) { $score += 70 }
+    
+    # 进程名模糊匹配
+    $processFuzzyScore = Get-FuzzyMatchScore $Query $rawProcess
+    if ($processFuzzyScore -gt 0) { $score += $processFuzzyScore * 0.8 }
 
+    # 词级别匹配
     foreach ($token in ($normalizedQuery -split '\s+' | Where-Object { $_ })) {
         if ($title -match "(^| )$([regex]::Escape($token))( |$)") { $score += 14 }
         elseif ($title.Contains($token)) { $score += 8 }
