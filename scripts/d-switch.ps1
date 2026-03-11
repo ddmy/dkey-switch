@@ -25,7 +25,9 @@ function Parse-PositiveInt([string]$raw, [string]$label) {
 
 function Normalize-Text([string]$Text) {
     if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
-    return ([regex]::Replace($Text.ToLowerInvariant(), '[^\p{L}\p{Nd}]+', ' ')).Trim()
+    # 先移除连字符，使 "企业微信-文档" 和 "企业微信文档" 能互相匹配
+    $text = $Text.ToLowerInvariant() -replace '-', ''
+    return ([regex]::Replace($text, '[^\p{L}\p{Nd}]+', ' ')).Trim()
 }
 
 function Get-MatchScore {
