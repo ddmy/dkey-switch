@@ -23,56 +23,65 @@ function Parse-PositiveInt([string]$raw, [string]$label) {
     return [int]$parsed
 }
 
-# 常见应用别名/缩写映射表（小写）
-$script:AppAliases = @{
-    # 企业应用 - 中文 + 拼音
-    '企微' = @('企业微信', 'wechatwork', 'wecom')
-    '企业微' = @('企业微信', 'wechatwork', 'wecom')
-    'qiwei' = @('企业微信', 'wechatwork', 'wecom')
-    'qiyou' = @('企业微信', 'wechatwork', 'wecom')  # 跳跃匹配辅助
-    'wx' = @('微信', 'wechat')
-    'weixin' = @('微信', 'wechat')
-    'vx' = @('微信', 'wechat')
-    'qq' = @('qq', 'tim', '腾讯')
-    '钉钉' = @('钉钉', 'dingtalk')
-    'dingding' = @('钉钉', 'dingtalk')
-    '飞书' = @('飞书', 'lark')
-    'feishu' = @('飞书', 'lark')
+# 加载别名映射配置文件
+$script:AliasesConfig = $null
+$script:AppAliases = @{}
+
+function Load-AliasesConfig {
+    param([string]$FallbackPath = $null)
     
-    # 编辑器/IDE
-    'code' = @('code', 'vscode', 'visual studio code')
-    'vscode' = @('vscode', 'visual studio code')
-    'vs' = @('visual studio', 'vscode')
-    'idea' = @('idea', 'intellij')
-    'pycharm' = @('pycharm')
-    'vim' = @('vim', 'neovim', 'nvim')
+    $possiblePaths = @()
     
-    # 浏览器
-    'chrome' = @('chrome', 'google chrome')
-    'edge' = @('edge', 'microsoft edge')
-    'ff' = @('firefox', '火狐')
-    'firefox' = @('firefox', '火狐')
+    # 1. 首先尝试脚本所在目录
+    if ($PSScriptRoot) {
+        $possiblePaths += Join-Path $PSScriptRoot 'aliases.json'
+    }
     
-    # 终端
-    'cmd' = @('cmd', 'command prompt')
-    'wt' = @('windows terminal', 'terminal')
-    '终端' = @('terminal', 'windows terminal', 'cmd', 'powershell', 'git bash')
-    'terminal' = @('terminal', 'windows terminal')
+    # 2. 尝试当前工作目录下的 scripts 子目录
+    $possiblePaths += Join-Path (Get-Location) 'scripts\aliases.json'
+    $possiblePaths += Join-Path (Get-Location) 'aliases.json'
     
-    # 开发工具
-    'git' = @('git', 'github', 'git bash')
-    'github' = @('github', 'git')
-    'docker' = @('docker', 'docker desktop')
+    # 3. 如果提供了备选路径
+    if ($FallbackPath) {
+        $possiblePaths += $FallbackPath
+    }
     
-    # 文件管理
-    '文件' = @('explorer', '文件资源管理器', '文件夹')
-    '资源管理器' = @('explorer', '文件资源管理器')
-    'explorer' = @('explorer', '文件资源管理器')
+    foreach ($path in $possiblePaths) {
+        if (Test-Path $path) {
+            try {
+                $content = Get-Content -Path $path -Raw -Encoding UTF8
+                $script:AliasesConfig = $content | ConvertFrom-Json
+                
+                # 构建快速查找表
+                $script:AppAliases = @{}
+                foreach ($appName in $script:AliasesConfig.aliases.PSObject.Properties.Name) {
+                    $app = $script:AliasesConfig.aliases.$appName
+                    foreach ($keyword in $app.keywords) {
+                        $key = $keyword.ToLowerInvariant()
+                        if (-not $script:AppAliases.ContainsKey($key)) {
+                            $script:AppAliases[$key] = @()
+                        }
+                        # 添加应用名和所有进程名作为目标
+                        $targets = @($appName)
+                        if ($app.processes) {
+                            $targets += $app.processes
+                        }
+                        $script:AppAliases[$key] = $targets
+                    }
+                }
+                
+                return $true
+            } catch {
+                Write-Warning "加载别名配置失败: $_"
+            }
+        }
+    }
     
-    # 媒体
-    '音乐' = @('spotify', 'music', '网易云音乐', 'qq音乐')
-    '视频' = @('vlc', 'potplayer', 'media player')
+    return $false
 }
+
+# 初始化加载
+$loaded = Load-AliasesConfig
 
 function Normalize-Text([string]$Text) {
     if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
@@ -99,17 +108,38 @@ function Expand-QueryVariants([string]$Query) {
         }
     }
     
-    # 智能扩展：尝试从拼音提取可能的匹配（如 qiyeweixinwendang -> 企业微信）
-    # 添加中文关键词作为潜在匹配目标
-    if ($queryLower -match 'qiyou|qiwei|weixin|wechat') {
-        [void]$variants.Add('企业微信')
-        [void]$variants.Add('微信')
+    # 智能扩展：使用配置文件中的关键词提取可能的匹配
+    if ($script:AliasesConfig -and $script:AliasesConfig.aliases) {
+        foreach ($appName in $script:AliasesConfig.aliases.PSObject.Properties.Name) {
+            $app = $script:AliasesConfig.aliases.$appName
+            foreach ($keyword in $app.keywords) {
+                # 如果查询包含关键词的任何部分，添加该应用
+                if ($queryLower -match [regex]::Escape($keyword) -or 
+                    $keyword -match [regex]::Escape($queryLower)) {
+                    [void]$variants.Add($appName)
+                    if ($app.processes) {
+                        foreach ($proc in $app.processes) {
+                            [void]$variants.Add($proc)
+                        }
+                    }
+                    break
+                }
+            }
+        }
     }
-    if ($queryLower -match 'wendang|wen') {
-        [void]$variants.Add('文档')
-    }
-    if ($queryLower -match 'dingding|ding') {
-        [void]$variants.Add('钉钉')
+    
+    # 保持向后兼容的硬编码规则（当配置文件未加载时）
+    if (-not $loaded) {
+        if ($queryLower -match 'qiyou|qiwei|weixin|wechat') {
+            [void]$variants.Add('企业微信')
+            [void]$variants.Add('微信')
+        }
+        if ($queryLower -match 'wendang|wen') {
+            [void]$variants.Add('文档')
+        }
+        if ($queryLower -match 'dingding|ding') {
+            [void]$variants.Add('钉钉')
+        }
     }
     
     return @($variants)
