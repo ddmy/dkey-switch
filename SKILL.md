@@ -40,7 +40,7 @@ metadata: {
 
 ---
 
-## AI 标准操作流程（重要）
+## AI 标准操作流程（重要）/ AI 决策模板（Canonical Routing）
 
 ### Step 1: 总是先执行 find-window
 
@@ -124,7 +124,7 @@ AI：执行 find-window "企微" 5 --json
 | `choice_out_of_range` | 序号越界 | 重新查找获取有效序号 |
 | `activation_failed` | 激活失败 | 重试1次，仍失败则降级 `Dalt -1` |
 
-### 退出码
+### 退出码约定
 
 | 码 | 含义 |
 |----|------|

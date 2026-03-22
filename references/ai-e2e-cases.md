@@ -248,3 +248,30 @@
 2. **准备测试窗口**：测试前确保相关窗口已打开
 3. **检查退出码**：`$LASTEXITCODE` 或 `%ERRORLEVEL%`
 4. **多轮验证**：模糊匹配需验证多种变体
+
+---
+
+## 结构化 E2E 用例（Structured Cases）
+
+以下为标准格式用例，供自动化工具与审计检查使用：
+
+1. Intent: 高置信度别名切换 — Command: `find-window "企微" 5 --json` + `activate-window "企微" 1 --json` — Expected status: `activated`
+2. Intent: 多候选确认流程 — Command: `find-window "文档" 5 --json` — Expected status: `ok`
+3. Intent: 无匹配降级 — Command: `find-window "xyz_notexist" 3 --json` — Expected status: `not_found`
+4. Intent: 英文别名匹配 — Command: `find-window "vscode" 3 --json` — Expected status: `ok`
+5. Intent: 跳跃模糊匹配 — Command: `find-window "qiyou" 3 --json` — Expected status: `ok`
+6. Intent: 连字符兼容匹配 — Command: `find-window "企业微信文档" 3 --json` — Expected status: `ok`
+7. Intent: 大小写不敏感 — Command: `find-window "CHROME" 3 --json` — Expected status: `ok`
+8. Intent: 列出所有窗口 — Command: `list-windows --json` — Expected status: `ok`
+9. Intent: 进程名激活 — Command: `activate-process "Code" 1 --json` — Expected status: `activated`
+10. Intent: 句柄精确激活 — Command: `activate-handle <handle> --json`（句柄由 list-windows 动态获取）— Expected status: `activated`
+11. Intent: 越界序号处理 — Command: `activate-window "微信" 99 --json` — Expected status: `choice_out_of_range`
+12. Intent: 激活失败恢复 — Command: `activate-window "protected_win" 1 --json` → 降级 `Dalt -1` — Expected status: `activation_failed`
+13. Intent: AltTab 快捷键 — Command: `Dalt -1` — Expected status: exit 0
+14. Intent: Ctrl+Tab 标签切换 — Command: `Dctrl -1` — Expected status: exit 0
+15. Intent: 窗口+标签组合 — Command: `activate-window "chrome" 1 --json` + `Dctrl -1` — Expected status: `activated`
+16. Intent: 多轮对话确认 — Command: `find-window "终端" 3 --json` → 用户选择 → `activate-window "终端" 1 --json` — Expected status: `activated`
+17. Intent: 进程稳定激活（VS Code）— Command: `activate-process "Code" 1 --json` — Expected status: `activated`
+18. Intent: 纯知识问答不触发 — Command: (不执行脚本) — Expected status: N/A
+19. Intent: 概念讨论不触发 — Command: (不执行脚本) — Expected status: N/A
+20. Intent: 用户明确拒绝不触发 — Command: (不执行脚本) — Expected status: N/A
